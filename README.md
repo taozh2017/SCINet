@@ -11,17 +11,17 @@
 ### 2.2 Dataset Overview
 
 <div align="center">
-  <img src="imgs\datasets.jpg" alt="datasets">
+  <img src="imgs\datasets.png" alt="datasets">
   <p><b>Fig. 1</b>: Some sampling examples from four datasets, i.e., RoboTool, Kvasir-Instrument, Endovis2017, and Endovis2018. These datasets highlight several challenging factors for surgical instrument segmentation, including incomplete target display, blurriness, poor angles, low image quality, and high instrument similarity.</p>
 </div>
 
 <div align="center">
-  <img src="imgs\results_ev1718.jpg" alt="results_ev1718">
+  <img src="imgs\results_ev1718.png" alt="results_ev1718">
   <p><b>Fig. 1</b>: Qualitative comparisons of SCI-Net with other methods on the EndoVis 2017 and EndoVis 2018 datasets.</p>
 </div>
 
 <div align="center">
-  <img src="imgs\results_kvrt.jpg" alt="results_kvrt" >
+  <img src="imgs\results_kvrt.png" alt="results_kvrt" >
   <p><b>Fig. 1</b>: Qualitative comparisons of SCI-Net with other SOTA methods on the Kvasir-Instrument and RoboTool datasets.Image GT CTNetEMCADNet SCI-Net.</p>
 </div>
 
