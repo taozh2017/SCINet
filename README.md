@@ -7,7 +7,7 @@
 ## 2. Overview
 
 ### 2.1 Introduction
-Surgical instrument segmentation plays an important role in aiding visual perception and precise operation of robotic surgical systems. However, the complex background interference, diverse instrument morphologies, and low contrast between instruments and background in surgical scenes make current segmentation models still face significant challenges in accuracy and robustness. Despite significant advances in deep learning based approaches, existing models still fall short in capturing the fine edges and global contextual relationships of instruments. To address these issues, we propose a Spectral-attentive Contextual Interaction Network (SCI-Net) for surgical instrument segmentation. Specifically, we present a Global Context Aggregation Module (GCAM) to integrate high-level features, which is used to produce a global map for the coarse localization of the segmented target. Then, a Spectral-enhanced Feature Module (SFM) is proposed to enhance the expression of features in the form of frequency-domain attention by transforming features from the spatial domain to the frequency domain. In addition, we design the Scale-aware Dilation Module (SADM) in the decoder to further adaptively integrate the augmented features through multi-scale dilation convolution combined with a dynamic fusion mechanism, which improves the segmentation performance on the fine boundaries of instruments.We have extensively validated SCI-Net on multiple publicly available surgical instrument segmentation datasets, and the experimental results show that SCI-Net significantly outperforms other state-of-the-art segmentation methods. We also construct a benchmark for surgical instrument segmentation.
+Surgical instrument segmentation plays an important role in aiding visual perception and precise operation of robotic surgical systems. However, the complex background interference, diverse instrument morphologies, and low contrast between instruments and background in surgical scenes make current segmentation models still face significant challenges in accuracy and robustness. Despite significant advances in deep learning based approaches, existing models still fall short in capturing the fine edges and global contextual relationships of instruments. To address these issues, we propose a Spectral-attentive Contextual Interaction Network (SCI-Net) for surgical instrument segmentation. Specifically, we present a Global Context Aggregation Module (GCAM) to integrate high-level features, which is used to produce a global map for the coarse localization of the segmented target. Then, a Spectral-enhanced Feature Module (SFM) is proposed to enhance the expression of features in the form of frequency-domain attention by transforming features from the spatial domain to the frequency domain. In addition, we design the Scale-aware Dilation Module (SDM) in the decoder to further adaptively integrate the augmented features through multi-scale dilation convolution combined with a dynamic fusion mechanism, which improves the segmentation performance on the fine boundaries of instruments.We have extensively validated SCI-Net on multiple publicly available surgical instrument segmentation datasets, and the experimental results show that SCI-Net significantly outperforms other state-of-the-art segmentation methods. We also construct a benchmark for surgical instrument segmentation.
 
 ### 2.2 Dataset Overview
 
@@ -58,9 +58,9 @@ pip install numpy opencv-python tqdm PyYAML matplotlib h5py torchcam scikit-lear
 ## 4. Dataset Preparation
 ### 4.1 Supported Datasets
 - **EndoVis 2017**: Surgical instrument segmentation challenge dataset (8 instrument classes)
-- **EndoVis 2018**: Robotic instrument segmentation dataset (7 instrument classes)
+- **EndoVis 2018**: Robotic instrument segmentation dataset (8 instrument classes)
 - **Kvasir-Instrument**: Gastrointestinal endoscopy instrument dataset (1 instrument class)
-- **RoboTool**: Robotic surgical tool segmentation dataset (4 instrument classes)
+- **RoboTool**: Robotic surgical tool segmentation dataset (1 instrument classes)
 
 ### 4.2 Dataset Download Links
 - EndoVis 2017/2018: [MICCAI EndoVis Challenge](https://endovissub2017-roboticinstrumentsegmentation.grand-challenge.org/)
@@ -87,6 +87,8 @@ data/
 │   └── test/
 ├── kvasir_instrument/
 │   ├── train/
+│   │   ├── images/ 
+│   │   └── masks/ 
 │   ├── val/
 │   └── test/
 └── robotool/
@@ -107,7 +109,7 @@ SCI-Net is built on a modified Segment Anything Model (SAM) backbone with the fo
 - **Backbone**: SCINet (custom feature extraction network with frequency-domain enhancement)
 - **Global Context Aggregation Module (GCAM)**: Captures long-range contextual relationships for coarse target localization
 - **Spectral-enhanced Feature Module (SFM)**: Transforms features to frequency domain to enhance discriminative representation
-- **Scale-aware Dilation Module (SADM)**: Multi-scale dilation convolution with dynamic fusion for fine boundary segmentation
+- **Scale-aware Dilation Module (SDM)**: Multi-scale dilation convolution with dynamic fusion for fine boundary segmentation
 - **Loss Function**: Combined loss = Cross-entropy loss (class-weighted) + Dice loss + IoU loss + Boundary-aware loss
 
 ## 6. Training
