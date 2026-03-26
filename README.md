@@ -59,13 +59,13 @@ pip install numpy opencv-python tqdm PyYAML matplotlib h5py torchcam scikit-lear
 ### 4.1 Supported Datasets
 - **EndoVis 2017**: Surgical instrument segmentation challenge dataset (8 instrument classes)
 - **EndoVis 2018**: Robotic instrument segmentation dataset (8 instrument classes)
-- **Kvasir-Instrument**: Gastrointestinal endoscopy instrument dataset (1 instrument class)
-- **RoboTool**: Robotic surgical tool segmentation dataset (1 instrument classes)
+<!-- - **Kvasir-Instrument**: Gastrointestinal endoscopy instrument dataset (1 instrument class)
+- **RoboTool**: Robotic surgical tool segmentation dataset (1 instrument classes) -->
 
 ### 4.2 Dataset Download Links
 - EndoVis 2017/2018: [MICCAI EndoVis Challenge](https://endovissub2017-roboticinstrumentsegmentation.grand-challenge.org/)
-- Kvasir-Instrument: [Kvasir Dataset](https://datasets.simula.no/kvasir-instrument/)
-- RoboTool: [RoboTool Dataset](https://github.com/MehmetAygun/robotic-tool-segmentation)
+<!-- - Kvasir-Instrument: [Kvasir Dataset](https://datasets.simula.no/kvasir-instrument/)
+- RoboTool: [RoboTool Dataset](https://github.com/MehmetAygun/robotic-tool-segmentation) -->
 
 ### 4.3 Dataset Structure
 Organize all datasets in the following unified structure (critical for reproducibility):
@@ -85,16 +85,6 @@ data/
 │   ├── train/
 │   ├── val/
 │   └── test/
-├── kvasir_instrument/
-│   ├── train/
-│   │   ├── images/ 
-│   │   └── masks/ 
-│   ├── val/
-│   └── test/
-└── robotool/
-    ├── train/
-    ├── val/
-    └── test/
 ```
 
 ### 4.4 Data Preprocessing
@@ -124,7 +114,7 @@ The training process uses distributed data parallel (DDP) for multi-GPU training
 | `--tag` | 'scinet' | Additional tag for experiment identification |
 | `--dataset` | 'endovis17' | Dataset name (endovis17/endovis18/kvasir_instrument/robotool) |
 | `--local_rank` | -1 | Local rank for DDP (auto-assigned in multi-GPU training) |
-| `--num_classes` | 8 | Number of classes (match dataset: endovis17=8, endovis18=7, kvasir=1, robotool=4) |
+| `--num_classes` | 8 | Number of classes (match dataset: endovis17=8, endovis18=8) |
 | `--epoch_max` | 200 | Maximum training epochs |
 | `--image_size` | 512 | Input image size (height=width) |
 | `--batch_size` | 16 | Batch size per GPU (adjust based on GPU memory) |
@@ -143,7 +133,7 @@ python train.py --dataset endovis17 --num_classes 8 --epoch_max 200 --image_size
 ```bash
 python -m torch.distributed.launch --nproc_per_node=4 train.py \
   --dataset endovis18 \
-  --num_classes 7 \
+  --num_classes 8 \
   --epoch_max 200 \
   --image_size 512 \
   --batch_size 4 \
@@ -151,10 +141,7 @@ python -m torch.distributed.launch --nproc_per_node=4 train.py \
   --local_rank 0
 ```
 
-#### Fine-tuning on Kvasir-Instrument
-```bash
-python train.py --dataset kvasir_instrument --num_classes 1 --epoch_max 100 --image_size 512 --model ./checkpoints/scinet_exp/best.pth
-```
+
 
 ### 6.4 Training Details
 - Optimizer: AdamW (β1=0.9, β2=0.999)
@@ -182,34 +169,5 @@ python train.py --dataset kvasir_instrument --num_classes 1 --epoch_max 100 --im
 python prediction.py --dataset endovis17 --num_classes 8 --model ./checkpoints/scinet_exp/best.pth --save_vis True
 ```
 
-#### Inference on Kvasir-Instrument (without evaluation, only save predictions)
-```bash
-python prediction.py --dataset kvasir_instrument --num_classes 1 --model ./checkpoints/scinet_kvasir/best.pth --eval False --output_dir ./kvasir_predictions
-```
 
-### 7.3 Inference Outputs
-- Predicted masks (PNG format, pixel value = class ID) saved in `${output_dir}/masks/`
-- Visualization results (if `--save_vis=True`) saved in `${output_dir}/vis/` (overlay of prediction on original image)
-- Evaluation report (if `--eval=True`) saved as `${output_dir}/eval_metrics.json` (contains class-wise and mean Dice/IoU)
 
-## 8. Evaluation Metrics
-The code computes the following standard segmentation metrics (consistent with the paper):
-- **Dice Coefficient (F1-score)**: Per-class and mean Dice
-- **Jaccard Index (IoU)**: Per-class and mean IoU
-- **Pixel Accuracy (PA)**: Overall pixel classification accuracy
-- **Mean Intersection over Union (mIoU)**: Average IoU across all classes (excluding background if specified)
-
-Metrics are calculated using `scikit-learn` and saved in both JSON format (for quantitative analysis) and printed in the terminal.
-
-## 9. Notes for Reproducibility
-1. **Environment Consistency**: Use the exact PyTorch/CUDA version (PyTorch 1.9.0 + CUDA 11.1 recommended) to avoid compatibility issues.
-2. **GPU Memory**: For 512×512 input, a GPU with ≥12GB memory is required (batch size=8 for single GPU, batch size=4 per GPU for 4-GPU DDP).
-3. **Dataset Consistency**: Ensure the dataset is split into train/val/test as per the paper (we provide split files in `./data_splits/`).
-4. **Random Seed**: The code sets a fixed random seed (42) for PyTorch/Numpy to ensure result reproducibility.
-5. **Pre-trained Weights**: For fair comparison, use the provided pre-trained backbone weights (in `./pretrained/`) instead of training from scratch.
-6. **Evaluation Protocol**: Use the same test set and metric calculation method as described in the paper (we provide the official evaluation script in `./eval/`).
-
-## 10. Troubleshooting
-- **CUDA Out of Memory**: Reduce batch size (`--batch_size`), use smaller image size, or enable gradient accumulation.
-- **Model Loading Error**: Ensure the number of classes matches between training and inference, and the checkpoint path is correct.
-- **Data Loading Error**: Verify the dataset structure matches Section 4.3, and all image/mask files are in the correct format (PNG/JPG).
