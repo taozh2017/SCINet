@@ -4,15 +4,15 @@ import numpy as np
 import yaml
 from tqdm import tqdm
 from torch.utils.data import DataLoader
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, _LRScheduler
 from dataloader.dataset import build_Dataset
 from dataloader.transforms import build_transforms
 import utils
 from statistics import mean
 import torch
 import torch.distributed as dist
-import random
-from models.doTrain import Trainer
+import math
+from models.DoNet import DoNet
 
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
 if hasattr(torch.cuda, 'empty_cache'):
@@ -22,6 +22,26 @@ local_rank = torch.distributed.get_rank()
 torch.cuda.set_device(local_rank)
 device = torch.device("cuda", local_rank)
 
+class WarmupPolyLR(_LRScheduler):
+    def __init__(self, optimizer, T_max, cur_iter, warmup_factor=1.0 / 3, warmup_iters=500,
+                 eta_min=0, power=0.9):
+        self.warmup_factor = warmup_factor
+        self.warmup_iters = warmup_iters
+        self.power = power
+        self.T_max, self.eta_min = T_max, eta_min
+        self.cur_iter = cur_iter
+        super().__init__(optimizer)
+
+    def get_lr(self):
+        if self.cur_iter <= self.warmup_iters:
+            alpha = self.cur_iter / self.warmup_iters
+            warmup_factor = self.warmup_factor * (1 - alpha) + alpha
+            # print(self.base_lrs[0]*warmup_factor)
+            return [lr * warmup_factor for lr in self.base_lrs]
+        else:
+            return [self.eta_min + (base_lr - self.eta_min) *
+                    math.pow(1 - (self.cur_iter - self.warmup_iters) / (self.T_max - self.warmup_iters),
+                             self.power) for base_lr in self.base_lrs]
 
 def eval_psnr(loader, model):
     model.eval()
@@ -45,9 +65,12 @@ def eval_psnr(loader, model):
 
 
 def prepare_training(max_epoch):
-    model = Trainer().cuda()
-    # optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.0001)
-    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001)
+    model = DoNet().cuda()
+    optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001, weight_decay=0.0001)
+    # optimizer = torch.optim.AdamW(model.parameters(), lr=0.0001)
+    # optimizer = torch.optim.SGD(
+    #         filter(lambda p: p.requires_grad, model.parameters()), 0.1, momentum=0.9, weight_decay=1e-4) 
+    #lcnet 4.5e-2 #lmnet:1e-3 #dsnet:0.1
     epoch_start = 1
     lr_scheduler = CosineAnnealingLR(optimizer, max_epoch, eta_min=1.0e-7)
     if local_rank == 0:
@@ -55,18 +78,23 @@ def prepare_training(max_epoch):
     return model, optimizer, epoch_start, lr_scheduler
 
 
-def train(train_loader, model,args):
+def train(train_loader, model,args,optimizer,epoch):
     model.train()
     pbar = tqdm(total=len(train_loader), leave=False, desc='train')   
     loss_list = []
-    for batch in train_loader:
+    total_batches = len(train_loader)
+    for iteration, batch in enumerate(train_loader, 0):
         for k, v in batch.items():
             if k != 'name':
                 batch[k] = v.to(device)
         inp = batch['inp']
         gt = batch['gt']    
+        args.per_iter = total_batches
+        args.max_iter = args.epoch_max * args.per_iter
+        args.cur_iter = epoch * args.per_iter + iteration
         model.set_input(inp, gt)
         model.optimize_parameters()
+
         batch_loss = [torch.zeros_like(model.loss_G) for _ in range(dist.get_world_size())]
         dist.all_gather(batch_loss, model.loss_G)
         loss_list.extend(batch_loss)
@@ -85,19 +113,19 @@ def main(save_path, args):
     log, writer = utils.set_save_path(save_path, remove=False)
 
     data_transforms = build_transforms(args)
-    train_dataset = build_Dataset(args=args, data_dir=args.dataset, split="train",
+    train_dataset = build_Dataset(args=args, data_dir=args.data_dir, split="train",
                                   transform=data_transforms["train"])
-    val_dataset = build_Dataset(args=args, data_dir=args.dataset, split="val",
+    val_dataset = build_Dataset(args=args, data_dir=args.data_dir, split="val",
                                 transform=data_transforms["valid_test"])
 
-    train_loader = DataLoader(train_dataset, batch_size=4, num_workers=2, pin_memory=True, drop_last=True, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=8, num_workers=2, pin_memory=True, drop_last=True, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1)
 
 
     model, optimizer, epoch_start, lr_scheduler = prepare_training(args.epoch_max)
     model.optimizer = optimizer
     lr_scheduler = CosineAnnealingLR(model.optimizer, args.epoch_max, eta_min=1.0e-7)
-
+    # CosineAnnealingLR(optimizer, T_max=args.epochs,eta_min=1e-6) #LM-Net
     model = model.cuda()
     model = torch.nn.parallel.DistributedDataParallel(
         model,
@@ -119,7 +147,8 @@ def main(save_path, args):
     timer = utils.Timer()
     for epoch in range(epoch_start, epoch_max + 1):
         t_epoch_start = timer.t()
-        train_loss_G = train(train_loader, model,args)
+        train_loss_G = train(train_loader, model,args, model.optimizer,epoch)
+        
         lr_scheduler.step()
 
         if local_rank == 0:
@@ -159,21 +188,18 @@ def save(model, save_path, name):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--name', default='8')
-    parser.add_argument('--model',default="/model_epoch_best.pth")
-    parser.add_argument('--tag', default='BAANet_17_new')
-    parser.add_argument('--dataset', default='endovis17')
+    parser.add_argument('--tag', default='mytestnet')
+    parser.add_argument('--data_dir', default='endovis18')
+    parser.add_argument('--save_root_path', default='/opt/data/private/save/lightmodel')
     parser.add_argument("--local_rank", type=int, default=-1, help="")
     parser.add_argument("--num_classes", type=int, default=8, help="")
     parser.add_argument("--epoch_max", type=int, default=200, help="")
     parser.add_argument("--image_size", type=int, default=512, help="")
     args = parser.parse_args()
 
-    save_name = args.name
-    if save_name is None:
-        save_name = '_' + args.config.split('/')[-1][:-len('.yaml')]
+    save_name = ''
     if args.tag is not None:
         save_name += '_' + args.tag
-    save_path = os.path.join('/save/otherMethods', save_name)
+    save_path = os.path.join(args.save_root_path, save_name)
 
     main(save_path, args=args)

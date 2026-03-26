@@ -110,6 +110,37 @@ class CrossAttention(nn.Module):
         
         return output 
 
+class AggregatEncoder(nn.Module):
+    def __init__(self, in_planes1, in_planes2):
+        super(AggregatEncoder, self).__init__()
+        self.conv1 = nn.Sequential(nn.Conv2d(in_planes1, in_planes1, 3,stride=1, padding=1),nn.BatchNorm2d(in_planes1), nn.ReLU(True))
+        self.conv2 = nn.Sequential(nn.Conv2d(in_planes2, in_planes1, 3,stride=1, padding=1),nn.BatchNorm2d(in_planes1), nn.ReLU(True))
+
+        self.catConv1 = BasicConv2d(in_planes1,in_planes1,3,stride=1, padding=1)
+        self.catConv2 = BasicConv2d(in_planes1,in_planes1,3,stride=1, padding=1)
+        self.cross_attention = CrossAttention(in_dim1=in_planes1, in_dim2=in_planes1, k_dim=in_planes1, v_dim=in_planes1, num_heads=8)
+
+    def forward(self, x1, x2, glocal_f):
+        b,c,h,w = x1.shape
+        _,_,h2,w2 = x2.shape
+        x1 = F.interpolate(x1,size=(h2,w2),mode="bilinear", align_corners=False)
+        x2_ = self.conv2(x2)
+        x1_ = self.conv1(x1)
+        # glocal_f_ = self.convf(glocal_f)
+        glocal_f_ = F.interpolate(glocal_f,size=(h2,w2),mode="bilinear", align_corners=False)
+
+        f1g = x1_*glocal_f_ + x1_
+        f2g = x2_*glocal_f_ + x2_
+
+        f1g_ = self.catConv1(f1g)
+        f2g_ = self.catConv2(f2g)
+        x1_reshaped = f1g_.view(b, h2*w2, c) 
+        x2_reshaped = f2g_.view(b, h2*w2, c) 
+        fe12 = self.cross_attention(x1_reshaped,x2_reshaped)
+        x= fe12.view(b, c, h2, w2)
+        x = F.interpolate(x,size=(h,w),mode="bilinear", align_corners=False)
+        return x
+
 class RCA(nn.Module):
     def __init__(self, inp,  kernel_size=1, ratio=1, band_kernel_size=11,dw_size=(1,1), padding=(0,0), stride=1, square_kernel_size=2, relu=True):
         super(RCA, self).__init__()
@@ -216,8 +247,8 @@ class GlobalDeepModule(nn.Module):
         self.ca2 = ConvolutionalAttention(64,64)
         self.ca3 = ConvolutionalAttention(64,64)
         self.ca4 = ConvolutionalAttention(64,64)
+
         self.gate = GateFusion(64)
-        self.rca = RCA(64)
         self.sigmoid = nn.Sigmoid()
         self.avg = nn.AdaptiveAvgPool2d(1)
         self.dc_cat_conv = nn.Sequential(nn.Conv2d(64,32,1),nn.BatchNorm2d(32),nn.ReLU(inplace=True),
@@ -233,14 +264,12 @@ class GlobalDeepModule(nn.Module):
         x22 = self.ca2(x2_)
         x33 = self.ca3(x3_)
         x44 = self.ca4(x4_)
-        f234 = self.gate(x22,x33,x44)
-        f234_ = self.cconv(f234)
 
-        
-        b,c,h,w = f234_.shape
+        f234 = self.gate(x22,x33,x44)
+
+        f234_ = self.cconv(f234)
         g_x = self.avg(f234_)
         g_x_ = self.sigmoid(self.dc_cat_conv(g_x))
-
         x = f234_ * g_x_ + f234_
         x = self.outconv(x)
         return x
@@ -309,7 +338,7 @@ class SCINet(nn.Module):
     def __init__(self,num_classes=8):
         super(SCINet, self).__init__()
         self.backbone = pvt_v2_b2()
-        path = '/pretrain/pvt_v2_b2.pth'
+        path = '/opt/data/private/pretrain/pvt_v2_b2.pth'
         channels=[512, 320, 128, 64]
         save_model = torch.load(path)
         model_dict = self.backbone.state_dict()
@@ -319,7 +348,6 @@ class SCINet(nn.Module):
         print('Model pvtv2 created, param count: %d'+' backbone: ', sum([m.numel() for m in self.backbone.parameters()]))
 
         self.globalmodule = GlobalDeepModule(channels)
-
 
         self.rca1 = DCTChannelBlock2D(channels[-1],128,128)
         self.rca2 = DCTChannelBlock2D(channels[-2],64,64)
@@ -345,7 +373,7 @@ class SCINet(nn.Module):
         # encoder
         x1, x2, x3, x4 = self.backbone(x)
 
-        global_f = self.globalmodule(x2,x3,x4) 
+        global_f = self.globalmodule(x2,x3,x4)
                 
         f12 = self.rca1(x1)
         f23 = self.rca2(x2)
@@ -371,6 +399,5 @@ class SCINet(nn.Module):
         p2 = F.interpolate(p2, scale_factor=8, mode='bilinear')
         p1 = F.interpolate(p1, scale_factor=4, mode='bilinear')
         output_g = F.interpolate(output_g, scale_factor=8, mode='bilinear')
-
         
         return [p1,p2,p3,output_g]

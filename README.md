@@ -43,6 +43,7 @@ scikit-learn  # for evaluation metrics
 albumentations  # for data augmentation
 pillow
 scipy
+ml_collections
 ```
 
 ### 3.2 Installation
@@ -71,7 +72,7 @@ pip install numpy opencv-python tqdm PyYAML matplotlib h5py torchcam scikit-lear
 Organize all datasets in the following unified structure (critical for reproducibility):
 ```
 data/
-├── endovis17/
+├── endovis18/
 │   ├── train/
 │   │   ├── images/          # Training images (JPG/PNG)
 │   │   └── annotations/     # Training masks (grayscale PNG, pixel value = class ID)
@@ -81,10 +82,31 @@ data/
 │   └── test/
 │       ├── images/          
 │       └── annotations/     # Optional (for test set evaluation)
-├── endovis18/
-│   ├── train/
-│   ├── val/
-│   └── test/
+├── endovis17/       # Four-fold cross-processing
+│   ├── fold0/                   # Cross-validation fold 0 (training/validation split)
+│   │   ├── annotations/         # Multi-class segmentation masks (grayscale PNG, pixel = class ID)
+│   │   │   └── *.png
+│   │   ├── binary_annotations/  # Binary segmentation masks (instrument = foreground, background = 0)
+│   │   │   └── *.png
+│   │   └── images/              # Raw surgical RGB images
+│   │       └── *.png/*.jpg
+│   ├── fold1/                   # Cross-validation fold 1 (same structure as fold0)
+│   │   ├── annotations/
+│   │   ├── binary_annotations/
+│   │   └── images/
+│   ├── fold2/                   # Cross-validation fold 2 (same structure as fold0)
+│   │   ├── annotations/
+│   │   ├── binary_annotations/
+│   │   └── images/
+│   ├── fold3/                   # Cross-validation fold 3 (same structure as fold0)
+│   │   ├── annotations/
+│   │   ├── binary_annotations/
+│   │   └── images/
+│   └── test/                    # Independent test set
+│       ├── annotations/         # Test set ground truth masks
+│       │   └── *.png
+│       └── images/              # Raw test images
+│           └── *.png/*.jpg
 ```
 
 ### 4.4 Data Preprocessing
@@ -94,80 +116,54 @@ data/
 - Validation/test data only uses resizing and normalization (mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 - Masks are one-hot encoded during training for multi-class segmentation
 
-## 5. Model Architecture
-SCI-Net is built on a modified Segment Anything Model (SAM) backbone with the following key components:
-- **Backbone**: SCINet (custom feature extraction network with frequency-domain enhancement)
-- **Global Context Aggregation Module (GCAM)**: Captures long-range contextual relationships for coarse target localization
-- **Spectral-enhanced Feature Module (SFM)**: Transforms features to frequency domain to enhance discriminative representation
-- **Scale-aware Dilation Module (SDM)**: Multi-scale dilation convolution with dynamic fusion for fine boundary segmentation
-- **Loss Function**: Combined loss = Cross-entropy loss (class-weighted) + Dice loss + IoU loss + Boundary-aware loss
 
-## 6. Training
-### 6.1 Training Configuration
+## 5. Training
+### 5.1 Training Configuration
 The training process uses distributed data parallel (DDP) for multi-GPU training. Key hyperparameters are configurable via command line arguments.
 
-### 6.2 Command Line Arguments
-| Argument | Default Value | Description |
-|----------|---------------|-------------|
-| `--name` | 'scinet_exp' | Experiment name (for logging/saving) |
-| `--model` | None | Path to pre-trained checkpoint (optional, for fine-tuning) |
-| `--tag` | 'scinet' | Additional tag for experiment identification |
-| `--dataset` | 'endovis17' | Dataset name (endovis17/endovis18/kvasir_instrument/robotool) |
-| `--local_rank` | -1 | Local rank for DDP (auto-assigned in multi-GPU training) |
-| `--num_classes` | 8 | Number of classes (match dataset: endovis17=8, endovis18=8) |
-| `--epoch_max` | 200 | Maximum training epochs |
-| `--image_size` | 512 | Input image size (height=width) |
-| `--batch_size` | 16 | Batch size per GPU (adjust based on GPU memory) |
-| `--lr` | 1e-4 | Initial learning rate (AdamW) |
-| `--weight_decay` | 1e-5 | Weight decay for optimizer |
-| `--save_dir` | './checkpoints' | Directory to save model checkpoints |
-| `--log_dir` | './logs' | Directory to save training logs (TensorBoard) |
+You need to replace the **dataset storage path** with your own in advance in `dataloader/dataset.py` (where the dataset loading is defined); since `pvt_v2` is adopted as the backbone network in `models/nets/SCINet.py`, you also need to modify the **pre-trained weight path** to match your local file location.
+
+### 5.2 Command Line Arguments
+## Command Line Arguments
+| Argument         | Default Value                                  | Description |
+|------------------|------------------------------------------------|-------------|
+| `--tag`          | scinet                                      | Experiment tag for distinguishing different training tasks |
+| `--data_dir`     | endovis18                                      | Dataset directory or name (supports `endovis17` / `endovis18`) |
+| `--save_root_path` | /opt/data/private/save/lightmodel             | Root path to save model checkpoints and training logs |
+| `--local_rank`   | -1                                             | Local rank for distributed training (-1 for single-GPU training) |
+| `--num_classes`  | 8                                              | Number of segmentation classes |
+| `--epoch_max`    | 200                                            | Maximum training epochs |
+| `--image_size`   | 512                                            | Input image resolution (512×512) |
 
 ### 6.3 Training Command Examples
-#### Single GPU Training (EndoVis 2017)
+#### Single GPU Training
 ```bash
-python train.py --dataset endovis17 --num_classes 8 --epoch_max 200 --image_size 512 --batch_size 8 --lr 1e-4
+# EndoVis17 训练命令
+python train.py --tag scinet_endovis17 --data_dir endovis17 --num_classes 8 --epoch_max 200 --image_size 512
+
+# EndoVis18 训练命令
+python train.py --tag scinet_endovis18 --data_dir endovis18 --num_classes 8 --epoch_max 200 --image_size 512
 ```
 
-#### Multi-GPU Training (DDP, EndoVis 2018)
-```bash
-python -m torch.distributed.launch --nproc_per_node=4 train.py \
-  --dataset endovis18 \
-  --num_classes 8 \
-  --epoch_max 200 \
-  --image_size 512 \
-  --batch_size 4 \
-  --lr 1e-4 \
-  --local_rank 0
-```
-
-
-
-### 6.4 Training Details
-- Optimizer: AdamW (β1=0.9, β2=0.999)
-- Learning rate scheduler: Cosine annealing with warmup (10 epochs warmup)
-- Early stopping: Patience=20 (stop if validation IoU does not improve)
-- Checkpoint saving: Saves "last.pth" (latest epoch) and "best.pth" (highest validation mean IoU)
-- Logging: Training/validation loss and metrics are logged to TensorBoard every epoch
 
 ## 7. Inference
+
 ### 7.1 Command Line Arguments
-| Argument | Default Value | Description |
-|----------|---------------|-------------|
-| `--data_path` | './data' | Root path of dataset |
-| `--dataset` | 'endovis17' | Dataset name for inference |
-| `--num_classes` | 8 | Number of classes (match training) |
-| `--image_size` | 512 | Input image size (same as training) |
-| `--model` | './checkpoints/best.pth' | Path to trained model checkpoint |
-| `--output_dir` | './inference_results' | Directory to save prediction masks/visualizations |
-| `--save_vis` | False | Whether to save visualization (image + GT + prediction) |
-| `--eval` | True | Whether to calculate evaluation metrics (requires test annotations) |
+| Argument         | Default Value                                  | Description |
+|------------------|------------------------------------------------|-------------|
+| `--data_path`    | /opt/data/private/MGX/data                     | Root directory of the test dataset |
+| `--dataset`      | /endovis18                                     | Test dataset name (`endovis17` / `endovis18`) |
+| `--num_classes`  | 8                                              | Number of segmentation classes (consistent with training) |
+| `--image_size`   | 512                                            | Input image resolution (consistent with training) |
+| `--model`        | /opt/data/private/save/lightmodel/mynetSCTNet.pth | Path to the trained model checkpoint |
+| `--save_preds`   | /opt/data/private/save/lightmodel/preds        | Directory to save prediction masks and visualization results |
+| `--device`       | cuda                                           | Inference device (`cuda` for GPU, `cpu` for CPU) |
 
-### 7.2 Inference Command Examples
-#### Inference on EndoVis 2017 Test Set
+### 7.2 Run Inference
+Execute the following command in the terminal to start model inference and evaluation:
 ```bash
-python prediction.py --dataset endovis17 --num_classes 8 --model ./checkpoints/scinet_exp/best.pth --save_vis True
-```
 
+python prediction.py --dataset /endovis17 --num_classes 8 --model /path/to/your/best_model.pth --save_preds /path/to/save/results
+```
 
 

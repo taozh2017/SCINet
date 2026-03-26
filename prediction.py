@@ -9,12 +9,8 @@ from dataloader.transforms import build_transforms
 from torch.utils.data import DataLoader
 import numpy as np
 from metrics import general_dice, general_jaccard,compute_mask_IU
-import yaml
-import models
-from models.doTrain import Trainer
-from torchcam.methods import GradCAM
-from torchcam.utils import overlay_mask
-from torchvision.transforms.functional import to_pil_image
+
+from models.DoNet import DoNet
 from tqdm import tqdm
 parser = argparse.ArgumentParser()
 parser.add_argument('--data_path', type=str,
@@ -24,9 +20,13 @@ parser.add_argument('--dataset', type=str, default='/endovis18',
                     help='Name of Experiment')
 parser.add_argument('--num_classes', type=int, default=8,
                     help='output channel of network')
+parser.add_argument('--in_channels', type=int, default=3,
+                    help='input channel of network')
 parser.add_argument('--image_size', type=list, default=512,
                     help='patch size of network input')
-parser.add_argument('--model',default="/model_epoch_best.pth")
+parser.add_argument('--model',default="/opt/data/private/save/lightmodel/mynetSCTNet.pth")
+parser.add_argument('--save_preds',default="/opt/data/private/save/lightmodel/preds")
+parser.add_argument('--device', type=str, default='cuda')
 args = parser.parse_args()
 
 
@@ -37,17 +37,17 @@ def onehot(data, n):
     buf.flat[indices] = 1
     return buf.reshape(data.shape + (n,))
 
-def inference(save_path):
+def inference():
     data_transforms = build_transforms(args)
 
     val_dataset = build_Dataset(args=args, data_dir='endovis18', split="test",
                                 transform=data_transforms["valid_test"])
     loader = DataLoader(val_dataset, batch_size=1, shuffle=False, num_workers=1)
 
-    model = Trainer().cuda()
+    model = DoNet().cuda()
     sam_checkpoint = torch.load(args.model, map_location='cuda:0')
     model.load_state_dict(sam_checkpoint, strict=False)
-    os.makedirs(save_path, exist_ok=True)
+    
 
     result_dice = []
     result_jaccard = []
@@ -65,6 +65,7 @@ def inference(save_path):
         }
 
     pbar = tqdm(loader, leave=False, desc='val')
+
     for batch in pbar:
         for k, v in batch.items():
             if k != 'name':
@@ -77,10 +78,9 @@ def inference(save_path):
         # 2017计算方式
         result_dice += [general_dice(test_label, pred)]
         result_jaccard += [general_jaccard(test_label, pred)]
-        
-    
-        # if save_path:
-        #     save_vis(test_image, pred, test_label, save_path, image_name)
+
+        # if args.save_preds:
+        #     save_vis(test_image, pred, test_label, args.save_preds, image_name)
         im_iou = []
         im_iou_challenge = []
         target = test_label
@@ -103,10 +103,13 @@ def inference(save_path):
                 cum_U += u
                 class_ious[class_id].append(i/u)
                 if class_id in gt_classes:
+                    # consider only classes present in gt
                     im_iou_challenge+=[(i+1e-15)/(u+1e-15)]
         if len(im_iou) > 0:
+            # to avoid nans by appending empty list
             all_im_iou_acc.append(np.mean(im_iou))
         if len(im_iou_challenge) > 0:
+            # to avoid nans by appending empty list
             all_im_iou_acc_challenge.append(np.mean(im_iou_challenge))
 
     final_im_iou = cum_I / cum_U
@@ -175,12 +178,11 @@ def save_vis(image, pred, label, save_folder_path, name):
     save_temp_label = label_on_image(image, label, classes=args.num_classes)
     save_temp_image = label_on_image(image, pred, classes=args.num_classes)
 
-    cv2.imwrite(os.path.join(save_folder_path, name + "_image.png"), image)
-    cv2.imwrite(os.path.join(save_folder_path, name + "_label.png"), save_temp_label)
+    # cv2.imwrite(os.path.join(save_folder_path, name + "_image.png"), image)
+    # cv2.imwrite(os.path.join(save_folder_path, name + "_label.png"), save_temp_label)
     cv2.imwrite(os.path.join(save_folder_path, name + "_pred.png"), save_temp_image)
     print("")
 
 
 if __name__ == '__main__':
-    save_path = "/save/endovis18/mynet_1"
-    inference(save_path)
+    inference()

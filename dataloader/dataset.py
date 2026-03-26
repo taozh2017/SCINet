@@ -29,12 +29,12 @@ class build_Dataset(Dataset):
             print("train total {} samples".format(len(self.sample_list)))
         else:
             if self.split == "train":
-                image_path = ['/opt/data/private/data/organize_endovis2017/fold2/images',
-                            '/opt/data/private/data/organize_endovis2017/fold3/images','/opt/data/private/data/organize_endovis2017/fold1/images']
+                image_path = ['/opt/data/private/data/organize_endovis2017/fold0/images',
+                            '/opt/data/private/data/organize_endovis2017/fold1/images','/opt/data/private/data/organize_endovis2017/fold3/images']
             elif self.split == "val":
-                image_path = ['/opt/data/private/data/organize_endovis2017/fold0/images']
+                image_path = ['/opt/data/private/data/organize_endovis2017/fold2/images']
             else:
-                image_path = ['/opt/data/private/data/endovis2017/endovis17/instrument_2017_test/images']
+                image_path = ['/opt/data/private/data/organize_endovis2017/test/images']
             self.sample_list = []
             for i in range(len(image_path)):
                 sample_list = os.listdir(image_path[i])
